@@ -83,10 +83,9 @@ jobs:
 
       - name: Build Lemon Lite ARM64 APK
         working-directory: third_party/Lemon-Project
-        env:
-          ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
-          CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
         run: |
+          export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
+          export CCACHE_DIR="$HOME/.cache/ccache"
           mkdir -p "$CCACHE_DIR"
           ccache --max-size=5G
           chmod +x .ci/android/build.sh
