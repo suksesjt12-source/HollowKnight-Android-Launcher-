@@ -87,7 +87,25 @@ jobs:
             "ndk;${NDK_VERSION}" \
             "cmake;${CMAKE_VERSION}"
 
-      - name: Build Lemon Lite ARM64 APK
+      - name: Apply Hollow Knight Android app branding
+        working-directory: third_party/Lemon-Project
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("src/android/app/build.gradle.kts")
+          source = path.read_text()
+          start = source.index('create("lite") {')
+          end = source.index('create("liteSpoofed") {', start)
+          block = source[start:end]
+          block = block.replace('manifestPlaceholders += mapOf("appNameBase" to "Lemon Lite")', 'manifestPlaceholders += mapOf("appNameBase" to "Hollow Knight Android")')
+          block = block.replace('resValue("string", "app_name_suffixed", "Lemon Lite")', 'resValue("string", "app_name_suffixed", "Hollow Knight Android")')
+          block = block.replace('applicationId = "dev.lemon.lemon_emulator.lite"', 'applicationId = "com.suksesjt12.hollowknight.switch"')
+          if 'Hollow Knight Android' not in block or 'com.suksesjt12.hollowknight.switch' not in block:
+              raise SystemExit("Branding patch did not apply; refusing to build an unbranded APK")
+          path.write_text(source[:start] + block + source[end:])
+          PY
+
+      - name: Build Hollow Knight Android ARM64 APK
         working-directory: third_party/Lemon-Project
         run: |
           export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
@@ -101,7 +119,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HollowKnight-Switch-Emulator-Lite-ARM64
+          name: HollowKnight-Android-ARM64
           path: third_party/Lemon-Project/artifacts/*.apk
           if-no-files-found: error
           retention-days: 14
