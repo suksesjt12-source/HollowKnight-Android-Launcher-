@@ -17,6 +17,15 @@ class MainActivity : Activity() {
     private var gameUri: Uri? = null
     private val pickGame = 1001
 
+    private external fun nativeBackendStatus(): String
+    private external fun nativeCoreAvailable(): Boolean
+
+    companion object {
+        init {
+            System.loadLibrary("hk_native_backend")
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.decorView.systemUiVisibility =
@@ -42,7 +51,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
         }
         val subtitle = TextView(this).apply {
-            text = "ANDROID LAUNCHER  •  EARLY BUILD"
+            text = "ANDROID NATIVE BACKEND • EARLY BUILD"
             textSize = 12f
             setTextColor(muted)
             gravity = Gravity.CENTER
@@ -69,9 +78,11 @@ class MainActivity : Activity() {
             text = "PLAY"
             setOnClickListener {
                 val message = if (gameUri == null) {
-                    "Pilih file terlebih dahulu. Backend emulator belum terpasang."
+                    "Pilih file game terlebih dahulu."
+                } else if (!nativeCoreAvailable()) {
+                    "Native bridge aktif, tetapi mesin emulator Switch belum ditautkan. File game belum dapat dijalankan."
                 } else {
-                    "File terpilih, tetapi backend emulator belum terpasang. Launcher ini belum dapat menjalankan NSP."
+                    "Backend melaporkan core tersedia. Integrasi sesi game masih perlu diselesaikan."
                 }
                 android.app.AlertDialog.Builder(this@MainActivity)
                     .setTitle("Status Emulator")
@@ -81,7 +92,7 @@ class MainActivity : Activity() {
             }
         }
         val status = TextView(this).apply {
-            text = "STATUS BACKEND: BELUM TERPASANG"
+            text = nativeBackendStatus().uppercase()
             textSize = 12f
             setTextColor(accent)
             gravity = Gravity.CENTER
