@@ -1,15 +1,15 @@
-name: Android Emulator APK
+name: Nightfall Android Runtime APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "custom/mediatek-ui" ]
 
 permissions:
   contents: read
 
 concurrency:
-  group: android-emulator-build-${{ github.ref }}
+  group: nightfall-android-build-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      - name: Checkout repository and emulator source
+      - name: Checkout project and emulator engine
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
@@ -56,22 +56,22 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
-      - name: Cache Lemon native dependencies
+      - name: Cache emulator native dependencies
         uses: actions/cache@v4
         with:
           path: |
             third_party/Lemon-Project/.cache/cpm
-          key: lemon-cpm-${{ runner.os }}-${{ hashFiles('third_party/Lemon-Project/cpmfile.json') }}
+          key: nightfall-cpm-${{ runner.os }}-${{ hashFiles('third_party/Lemon-Project/cpmfile.json') }}
           restore-keys: |
-            lemon-cpm-${{ runner.os }}-
+            nightfall-cpm-${{ runner.os }}-
 
       - name: Cache C++ compiler output
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: lemon-ccache-${{ runner.os }}-${{ github.sha }}
+          key: nightfall-ccache-${{ runner.os }}-${{ github.sha }}
           restore-keys: |
-            lemon-ccache-${{ runner.os }}-
+            nightfall-ccache-${{ runner.os }}-
 
       - name: Install native build tools
         run: |
@@ -87,25 +87,68 @@ jobs:
             "ndk;${NDK_VERSION}" \
             "cmake;${CMAKE_VERSION}"
 
-      - name: Apply Hollow Knight Android app branding
+      - name: Install custom launcher, profiles and app identity
         working-directory: third_party/Lemon-Project
         run: |
+          cp "$GITHUB_WORKSPACE/custom-ui/HollowHomeScreen.kt" \
+            src/android/app/src/main/java/dev/lemon/lemon_emu/ui/HollowHomeScreen.kt
+          cp "$GITHUB_WORKSPACE/custom-ui/MediaTekProfiles.kt" \
+            src/android/app/src/main/java/dev/lemon/lemon_emu/utils/MediaTekProfiles.kt
           python3 - <<'PY'
+          import re
           from pathlib import Path
-          path = Path("src/android/app/build.gradle.kts")
-          source = path.read_text()
-          start = source.index('create("lite") {')
-          end = source.index('create("liteSpoofed") {', start)
+
+          gradle = Path("src/android/app/build.gradle.kts")
+          source = gradle.read_text()
+          start = source.index('create("mainline") {')
+          end = source.index('create("lite") {', start)
           block = source[start:end]
-          block = block.replace('manifestPlaceholders += mapOf("appNameBase" to "Lemon Lite")', 'manifestPlaceholders += mapOf("appNameBase" to "Hollow Knight Android")')
-          block = block.replace('resValue("string", "app_name_suffixed", "Lemon Lite")', 'resValue("string", "app_name_suffixed", "Hollow Knight Android")')
-          block = block.replace('applicationId = "dev.lemon.lemon_emulator.lite"', 'applicationId = "com.suksesjt12.hollowknight.switch"')
-          if 'Hollow Knight Android' not in block or 'com.suksesjt12.hollowknight.switch' not in block:
-              raise SystemExit("Branding patch did not apply; refusing to build an unbranded APK")
-          path.write_text(source[:start] + block + source[end:])
+
+          block = block.replace(
+              'manifestPlaceholders += mapOf("appNameBase" to "Lemon")',
+              'manifestPlaceholders += mapOf("appNameBase" to "Nightfall Runtime")'
+          )
+          block = block.replace(
+              'resValue("string", "app_name_suffixed", "Lemon")',
+              'resValue("string", "app_name_suffixed", "Nightfall Runtime")'
+          )
+          if 'applicationId = "com.suksesjt12.hollowknight.switch"' not in block:
+              block = block.replace(
+                  'dimension = "version"',
+                  'dimension = "version"\n            applicationId = "com.suksesjt12.hollowknight.switch"',
+                  1
+              )
+
+          required = [
+              'Nightfall Runtime',
+              'applicationId = "com.suksesjt12.hollowknight.switch"'
+          ]
+          if not all(item in block for item in required):
+              raise SystemExit("App identity patch failed; refusing to build the stock app")
+          gradle.write_text(source[:start] + block + source[end:])
+
+          fragment_path = Path(
+              "src/android/app/src/main/java/dev/lemon/lemon_emu/ui/ModernGamesFragment.kt"
+          )
+          fragment = fragment_path.read_text()
+          pattern = re.compile(
+              r"ModernLibraryScreen\(\s*"
+              r"games\s*=\s*games,\s*"
+              r"loading\s*=\s*reloading,\s*"
+              r"preferences\s*=\s*preferences,\s*"
+              r"initialSelectedPath\s*=\s*lastPlayedPath,\s*"
+              r"showQLaunch\s*=\s*BooleanSetting\.ENABLE_QLAUNCH_BUTTON\.getBoolean\(\)\s*&&\s*"
+              r"NativeLibrary\.isFirmwareAvailable\(\),\s*"
+              r"actions\s*=\s*actions\s*\)"
+          )
+          replacement = "HollowHomeScreen(games = games, loading = reloading, actions = actions)"
+          fragment, count = pattern.subn(replacement, fragment, count=1)
+          if count != 1:
+              raise SystemExit("Could not replace the original library screen call; refusing a partial UI patch")
+          fragment_path.write_text(fragment)
           PY
 
-      - name: Build Hollow Knight Android ARM64 APK
+      - name: Build Nightfall ARM64 APK from standard engine flavor
         working-directory: third_party/Lemon-Project
         run: |
           export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
@@ -113,13 +156,13 @@ jobs:
           mkdir -p "$CCACHE_DIR"
           ccache --max-size=5G
           chmod +x .ci/android/build.sh
-          CCACHE=true .ci/android/build.sh -t lite -b Release
+          CCACHE=true .ci/android/build.sh -t standard -b Release
           ccache --show-stats
 
-      - name: Upload APK artifact
+      - name: Upload Nightfall APK
         uses: actions/upload-artifact@v4
         with:
-          name: HollowKnight-Android-ARM64
+          name: Nightfall-MediaTek-ARM64
           path: third_party/Lemon-Project/artifacts/*.apk
           if-no-files-found: error
           retention-days: 14
