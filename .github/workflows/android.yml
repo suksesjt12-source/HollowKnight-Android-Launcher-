@@ -95,6 +95,7 @@ jobs:
           cp "$GITHUB_WORKSPACE/custom-ui/MediaTekProfiles.kt" \
             src/android/app/src/main/java/dev/lemon/lemon_emu/utils/MediaTekProfiles.kt
           python3 - <<'PY'
+          import re
           from pathlib import Path
 
           gradle = Path("src/android/app/build.gradle.kts")
@@ -124,30 +125,27 @@ jobs:
           ]
           if not all(item in block for item in required):
               raise SystemExit("App identity patch failed; refusing to build the stock app")
-
           gradle.write_text(source[:start] + block + source[end:])
 
           fragment_path = Path(
               "src/android/app/src/main/java/dev/lemon/lemon_emu/ui/ModernGamesFragment.kt"
           )
           fragment = fragment_path.read_text()
-          old = """                    ModernLibraryScreen(
-                        games = games,
-                        loading = reloading,
-                        preferences = preferences,
-                        initialSelectedPath = lastPlayedPath,
-                        showQLaunch = BooleanSetting.ENABLE_QLAUNCH_BUTTON.getBoolean() &&
-                            NativeLibrary.isFirmwareAvailable(),
-                        actions = actions
-                    )"""
-          new = """                    HollowHomeScreen(
-                        games = games,
-                        loading = reloading,
-                        actions = actions
-                    )"""
-          if old not in fragment:
-              raise SystemExit("Could not find the original library screen call; refusing a partial UI patch")
-          fragment_path.write_text(fragment.replace(old, new, 1))
+          pattern = re.compile(
+              r"ModernLibraryScreen\(\s*"
+              r"games\s*=\s*games,\s*"
+              r"loading\s*=\s*reloading,\s*"
+              r"preferences\s*=\s*preferences,\s*"
+              r"initialSelectedPath\s*=\s*lastPlayedPath,\s*"
+              r"showQLaunch\s*=\s*BooleanSetting\.ENABLE_QLAUNCH_BUTTON\.getBoolean\(\)\s*&&\s*"
+              r"NativeLibrary\.isFirmwareAvailable\(\),\s*"
+              r"actions\s*=\s*actions\s*\)"
+          )
+          replacement = "HollowHomeScreen(games = games, loading = reloading, actions = actions)"
+          fragment, count = pattern.subn(replacement, fragment, count=1)
+          if count != 1:
+              raise SystemExit("Could not replace the original library screen call; refusing a partial UI patch")
+          fragment_path.write_text(fragment)
           PY
 
       - name: Build Nightfall ARM64 APK from standard engine flavor
