@@ -1,0 +1,51 @@
+name: Build Mali Vulkan diagnostic APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'build_probe.sh'
+      - '.github/workflows/build-mali-vulkan-probe.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mali-vulkan-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout this builder
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned nx2android probe sources
+        uses: actions/checkout@v4
+        with:
+          repository: shirai91/nx2android
+          ref: 5afd9647ee6fb7281798d77c41606822517afb8d
+          path: upstream/nx2android
+          persist-credentials: false
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK r27c
+        run: sdkmanager --install "ndk;27.2.12479018"
+
+      - name: Check build script syntax
+        run: bash -n build_probe.sh
+
+      - name: Build native diagnostic library and APK
+        run: ./build_probe.sh "$ANDROID_SDK_ROOT/ndk/27.2.12479018"
+
+      - name: Upload diagnostic APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: nx2a-mali-vulkan-probe
+          path: build/nx2a-probe.apk
+          if-no-files-found: error
+          retention-days: 14
